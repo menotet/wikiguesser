@@ -141,8 +141,9 @@ class WikiGameApp(QWidget):
             print(f"APIリクエスト失敗 (記事本文取得): {e}")
             return title, [], f"<p>記事本文の取得に失敗しました: {e}</p>"
 
-        # 3. タイトルをスペースで単語に分割する
-        words = title.split() if title else []
+        # 3. タイトルを単語に分割する（カッコ内は除外）
+        title_for_words = re.sub(r'\s*[（\(][^）\)]*[）\)]', '', title).strip()
+        words = title_for_words.split() if title_for_words else []
 
         return title, words, full_html
 
@@ -339,23 +340,34 @@ class WikiGameApp(QWidget):
 
     def update_title_display(self):
         """現在の回答状況に応じてタイトル表示を更新"""
-        # Unpack all guessed words into a set of individual characters
-        guessed_chars = set()
-        for word in self.guessed_words:
-            guessed_chars.update(list(word))
+        guessed_chars = set("".join(self.guessed_words))
 
-        display_parts = []
-        # Iterate over each character of the full title string
-        for char in self.full_title:
-            if char == ' ':
-                # Keep spaces as they are
-                display_parts.append(' ')
-            elif char in guessed_chars:
-                display_parts.append(f"<span style='color: green; font-weight: bold;'>{char}</span>")
-            else:
-                # Use a fixed-width underscore for unguessed characters
-                display_parts.append(f"<span style='color: red;'>＿</span>")
-        self.hidden_title_label.setText("".join(display_parts))
+        # タイトルをカッコの内外で分割
+        # 例: "A (B) C" -> ["A ", "(B)", " C"]
+        parts = re.split(r'([（\(][^）\)]*[）\)])', self.full_title)
+
+        display_html = ""
+        for part in parts:
+            if not part:
+                continue
+
+            # カッコで囲まれた部分はそのまま表示
+            if part.startswith(('(', '（')) and part.endswith((')', '）')):
+                display_html += part
+                continue
+
+            # それ以外の部分はマスキング処理
+            part_html = []
+            for char in part:
+                if char == ' ':
+                    part_html.append(' ')
+                elif char in guessed_chars:
+                    part_html.append(f"<span style='color: green; font-weight: bold;'>{char}</span>")
+                else:
+                    part_html.append(f"<span style='color: red;'>＿</span>")
+            display_html += "".join(part_html)
+
+        self.hidden_title_label.setText(display_html)
 
     def show_answer(self):
         """答えをすべて表示し、ゲームを終了状態にする"""
