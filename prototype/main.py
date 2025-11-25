@@ -131,8 +131,8 @@ class WikiGameApp(QWidget):
             print(f"APIリクエスト失敗 (記事本文取得): {e}")
             return title, [], f"<p>記事本文の取得に失敗しました: {e}</p>"
 
-        # 3. タイトルを単語に分割せず、全体を1つの要素とする
-        words = [title] if title else []
+        # 3. タイトルをスペースで単語に分割する
+        words = title.split() if title else []
 
         return title, words, full_html
 
@@ -169,12 +169,14 @@ class WikiGameApp(QWidget):
 
         soup = BeautifulSoup(self.original_html, 'lxml')
         
+        self._mask_parentheses_in_html(soup)
+        
         words_to_mask, furigana_to_mask = self._collect_mask_words(soup)
         
         masking_regex = self._build_masking_regex(words_to_mask, furigana_to_mask)
 
         if not masking_regex:
-            self.hint_view.setHtml(self.original_html, QUrl(WIKI_PAGE_BASE_URL))
+            self.hint_view.setHtml(str(soup), QUrl(WIKI_PAGE_BASE_URL))
             return
         
         self._apply_mask_to_html(soup, masking_regex)
@@ -237,18 +239,20 @@ class WikiGameApp(QWidget):
         WORD_CHARS = r"0-9A-Za-z_\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uFF66-\uFF9F\u30FC"
         patterns = []
         
-        # For the full title, we do a simple string match without word boundaries
-        # to maximize the chance of masking it, and place it first in the regex
-        # to ensure it's prioritized over partial matches.
-        if self.full_title in all_words_to_mask:
-            patterns.append(re.escape(self.full_title))
-        
         for w in all_words_to_mask:
-            if not w or w == self.full_title:
+            if not w:
                 continue
-            # For other words, we enforce word boundaries to avoid masking substrings.
+            
+            # If the string contains any whitespace, treat it as a phrase
+            # and build a pattern that's flexible with whitespace.
+            if any(c.isspace() for c in w):
+                parts = [re.escape(part) for part in w.split()]
+                p = r'\s+'.join(parts)
+            # For single words, enforce word boundaries to avoid masking substrings.
             # e.g., '日本' should not mask the '日本' in '日本人'.
-            p = r'(?<![' + WORD_CHARS + r'])' + re.escape(w) + r'(?![' + WORD_CHARS + r'])'
+            else:
+                p = r'(?<![' + WORD_CHARS + r'])' + re.escape(w) + r'(?![' + WORD_CHARS + r'])'
+            
             patterns.append(p)
 
         if not patterns:
@@ -286,15 +290,51 @@ class WikiGameApp(QWidget):
                 if new_nodes:
                     node.replace_with(*new_nodes)
 
+    def _mask_parentheses_in_html(self, soup):
+        """
+        Masks the content of parentheses in the HTML, except for the first paragraph.
+        """
+        first_p = soup.find('p')
+
+        paren_regex = re.compile(r'[（(]([^）)]+)[）)]')
+
+        for node in soup.find_all(string=True):
+            if node.parent.name in ['script', 'style', 'head', 'title']:
+                continue
+
+            if first_p and node.find_parent('p') is first_p:
+                continue
+
+            original_text = str(node)
+            
+            def mask_content(match):
+                inner_content = match.group(1)
+                return f"{match.group(0)[0]}{'＿' * len(inner_content)}{match.group(0)[-1]}"
+
+            new_text = paren_regex.sub(mask_content, original_text)
+
+            if new_text != original_text:
+                node.replace_with(NavigableString(new_text))
+
     def update_title_display(self):
         """現在の回答状況に応じてタイトル表示を更新"""
+        # Unpack all guessed words into a set of individual characters
+        guessed_chars = set()
+        for word in self.guessed_words:
+            guessed_chars.update(list(word))
+
         display_parts = []
-        for word in self.words_to_guess:
-            if word in self.guessed_words or len(word) <= 1:
-                display_parts.append(f"<span style='color: green; font-weight: bold;'>{word}</span>")
+        # Iterate over each character of the full title string
+        for char in self.full_title:
+            if char == ' ':
+                # Keep spaces as they are
+                display_parts.append(' ')
+            elif char in guessed_chars:
+                display_parts.append(f"<span style='color: green; font-weight: bold;'>{char}</span>")
             else:
-                display_parts.append(f"<span style='color: red;'>{'＿' * len(word)}</span>")
-        self.hidden_title_label.setText(" ".join(display_parts))
+                # Use a fixed-width underscore for unguessed characters
+                display_parts.append(f"<span style='color: red;'>＿</span>")
+        self.hidden_title_label.setText("".join(display_parts))
 
     def show_answer(self):
         """答えをすべて表示し、ゲームを終了状態にする"""
@@ -329,10 +369,10 @@ class WikiGameApp(QWidget):
                 # クリアしたら元の記事全体を表示
                 self.hint_view.load(QUrl(f"{WIKI_PAGE_BASE_URL}wiki/{self.full_title.replace(' ', '_')}"))
             else:
-                self.status_label.setText(f"正解！「{guess}」が当たりました！ 残り{len(self.words_to_guess) - len(self.guessed_words)}語。")
+                self.status_label.setText(f"correct「{guess}」 残り{len(self.words_to_guess) - len(self.guessed_words)}語")
 
         elif guess in self.guessed_words:
-            self.status_label.setText(f"「{guess}」は既に当てられています。")
+            self.status_label.setText(f"「{guess}」は既に当てられています")
         else:
             self.status_label.setText(f"incorrect. 「{guess}」ではありません")
 
