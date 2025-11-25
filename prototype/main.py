@@ -58,7 +58,7 @@ class WikiGameApp(QWidget):
         self.status_label.setFont(QFont("Arial", 12))
         main_layout.addWidget(self.status_label)
 
-        title_group_label = QLabel("--- 隠されたタイトル ---")
+        title_group_label = QLabel("単語")
         title_group_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(title_group_label)
 
@@ -68,7 +68,7 @@ class WikiGameApp(QWidget):
         self.hidden_title_label.setStyleSheet("padding: 20px; border: 2px solid #333;")
         main_layout.addWidget(self.hidden_title_label)
 
-        hint_label = QLabel("ヒント (記事全文から答えの単語をマスク)")
+        hint_label = QLabel("Wikiページ")
         hint_label.setFont(QFont("Arial", 12, QFont.Weight.Bold))
         main_layout.addWidget(hint_label)
 
@@ -152,7 +152,7 @@ class WikiGameApp(QWidget):
             self.update_title_display()
             self.update_view_with_masks() # マスキングして表示
 
-            self.status_label.setText(f"問題: {len(words)}語のタイトルを当ててください！")
+            self.status_label.setText(f"単語を当ててください")
             self.input_field.setText("")
             self.input_field.setFocus()
             self.input_field.setEnabled(True)
@@ -301,7 +301,7 @@ class WikiGameApp(QWidget):
         self.guessed_words.update(self.words_to_guess)
         self.update_title_display()
 
-        self.status_label.setText(f"正解は「{self.full_title}」でした。")
+        self.status_label.setText(f"正解は「{self.full_title}」")
         self.guess_button.setEnabled(False)
         self.input_field.setEnabled(False)
         self.answer_button.setEnabled(False)
@@ -322,7 +322,7 @@ class WikiGameApp(QWidget):
             self.update_view_with_masks() # マスク状態を更新
 
             if len(self.guessed_words) == len(self.words_to_guess):
-                self.status_label.setText(f"🎉ゲームクリア！タイトルは「{self.full_title}」でした！")
+                self.status_label.setText(f"correct. タイトルは「{self.full_title}」")
                 self.guess_button.setEnabled(False)
                 self.input_field.setEnabled(False)
                 self.answer_button.setEnabled(False)
@@ -334,7 +334,7 @@ class WikiGameApp(QWidget):
         elif guess in self.guessed_words:
             self.status_label.setText(f"「{guess}」は既に当てられています。")
         else:
-            self.status_label.setText(f"残念、「{guess}」は含まれていません。")
+            self.status_label.setText(f"incorrect. 「{guess}」ではありません")
 
     def toggle_debug(self):
         """デバッグモードの ON/OFF を切り替える"""
