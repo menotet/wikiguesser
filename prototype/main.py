@@ -37,7 +37,7 @@ USER_AGENT = 'WikiGuesserGame/0.4 (https://github.com/your-repo/wikiguesser; you
 class WikiGameApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("WikiGuesser ver.b0.10")
+        self.setWindowTitle("WikiGuesser ver b0.20")
         self.setGeometry(100, 100, 800, 700)
 
         # ゲームの状態を初期化
