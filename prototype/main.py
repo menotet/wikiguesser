@@ -179,6 +179,8 @@ class WikiGameApp(QWidget):
 
         soup = BeautifulSoup(self.original_html, 'lxml')
         
+        self._disable_links_in_html(soup)
+        
         self._mask_parentheses_in_html(soup)
         
         words_to_mask, furigana_to_mask = self._collect_mask_words(soup)
@@ -325,6 +327,15 @@ class WikiGameApp(QWidget):
 
             if new_text != original_text:
                 node.replace_with(NavigableString(new_text))
+
+    def _disable_links_in_html(self, soup):
+        """
+        Finds all hyperlink (<a>) tags and effectively disables them
+        by turning them into <span> tags and removing the href attribute.
+        """
+        for a_tag in soup.find_all('a', href=True):
+            a_tag.name = 'span'
+            del a_tag['href']
 
     def update_title_display(self):
         """現在の回答状況に応じてタイトル表示を更新"""
