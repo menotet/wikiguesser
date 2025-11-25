@@ -169,118 +169,99 @@ class WikiGameApp(QWidget):
 
         soup = BeautifulSoup(self.original_html, 'lxml')
         
-        # マスク対象の単語（推測済みでないもの）
+        words_to_mask, furigana_to_mask = self._collect_mask_words(soup)
+        
+        masking_regex = self._build_masking_regex(words_to_mask, furigana_to_mask)
+
+        if not masking_regex:
+            self.hint_view.setHtml(self.original_html, QUrl(WIKI_PAGE_BASE_URL))
+            return
+        
+        self._apply_mask_to_html(soup, masking_regex)
+
+        self.hint_view.setHtml(str(soup), QUrl(WIKI_PAGE_BASE_URL))
+
+    def _collect_mask_words(self, soup):
         words_to_mask = [w for w in self.words_to_guess if w not in self.guessed_words]
         
-        # まず初期マスク対象（タイトル等）から正規表現を作り、
-        # それにマッチする ruby の rt（ふりがな）をマスク対象に追加する。
-        # まず、ページ内に存在するすべての rt（ふりがな）の文字列を収集しておく。
-        # これにより、ruby タグ外に同じひらがな表記が存在する場合でもマスク対象にできます。
-        furigana_to_mask = [rt_tag.string.strip() for rt_tag in soup.find_all('rt') if rt_tag.string and rt_tag.string.strip()]
+        # Extract furigana (rt tags) to prevent hints from readings
+        furigana_to_mask = [rt.string.strip() for rt in soup.find_all('rt') if rt.string]
 
-        # タイトル全体も一旦含めた初期マスク語リストを作成
-        initial_mask_candidates = list(words_to_mask)
-        initial_mask_candidates.append(self.full_title)
-        # 空文字を除外し、長さ順にソートして最長マッチを優先
-        initial_mask_candidates = [w for w in initial_mask_candidates if w]
-        initial_mask_candidates = sorted(initial_mask_candidates, key=len, reverse=True)
-
-        initial_regex = None
-        if initial_mask_candidates:
-            initial_regex = re.compile('(' + '|'.join(re.escape(w) for w in initial_mask_candidates) + ')', re.IGNORECASE)
-
-        if self.debug_mode:
-            print("[DEBUG] initial_mask_candidates:", initial_mask_candidates)
-            try:
-                print("[DEBUG] initial_regex:", initial_regex.pattern if initial_regex else None)
-            except Exception:
-                print("[DEBUG] initial_regex: <unable to show pattern>")
-
-        # --- 追加: 最初の説明（先頭段落）でタイトルの横にある読み（括弧内）や近傍の ruby/rt を取得 ---
+        # Also extract readings from the first paragraph, which often contains furigana in parentheses
         try:
             first_p = soup.find('p')
             if first_p:
-                # テキストとして先頭段落を取得し、括弧内の読みをすべて抽出する
                 first_p_text = first_p.get_text()
                 for paren_match in re.finditer(r'[（(]([^）)]+)[）)]', first_p_text):
                     reading = paren_match.group(1).strip()
-                    if not reading:
-                        continue
-                    # ひらがなが含まれるものを優先して追加
-                    if re.search('[\u3040-\u309F]', reading) or re.search('[ぁ-ん]', reading):
-                        if reading not in furigana_to_mask:
-                            furigana_to_mask.append(reading)
-                    else:
-                        # ひらがなを含まない場合でも、短め（<=6文字）なら追加しておく
-                        if len(reading) <= 6 and reading not in furigana_to_mask:
-                            furigana_to_mask.append(reading)
-
-                # 先頭段落内の ruby タグに含まれる rt をすべて追加
+                    if reading and reading not in furigana_to_mask:
+                        furigana_to_mask.append(reading)
+                
                 for rt_tag in first_p.find_all('rt'):
-                    if rt_tag.string:
-                        v = rt_tag.string.strip()
-                        if v and v not in furigana_to_mask:
-                            furigana_to_mask.append(v)
+                    v = rt_tag.string.strip() if rt_tag.string else ''
+                    if v and v not in furigana_to_mask:
+                        furigana_to_mask.append(v)
         except Exception:
             if self.debug_mode:
-                print('[DEBUG] error while extracting first-paragraph readings')
-        # --- 追加終了 ---
+                print('[DEBUG] Error while extracting first-paragraph readings')
 
-        for ruby_tag in soup.find_all('ruby'):
-            # rubyタグのコピーからrt, rpタグを取り除き、ベーステキストを抽出
-            temp_ruby = copy.copy(ruby_tag)
-            for tag in temp_ruby.find_all(['rt', 'rp']):
-                tag.decompose()
-            base_text = temp_ruby.get_text().strip()
+        # Find furigana for words that are part of the title
+        initial_mask_candidates = sorted(list(set(words_to_mask + [self.full_title])), key=len, reverse=True)
+        if initial_mask_candidates:
+            initial_regex = re.compile('(' + '|'.join(re.escape(w) for w in initial_mask_candidates if w) + ')', re.IGNORECASE)
+            for ruby_tag in soup.find_all('ruby'):
+                temp_ruby = copy.copy(ruby_tag)
+                for tag in temp_ruby.find_all(['rt', 'rp']):
+                    tag.decompose()
+                base_text = temp_ruby.get_text().strip()
 
-            # base_text が初期マスク正規表現にマッチする場合、rt をマスク対象に追加
-            if base_text and initial_regex and initial_regex.search(base_text):
-                for rt_tag in ruby_tag.find_all('rt'):
-                    if rt_tag.string:
-                        v = rt_tag.string.strip()
+                if base_text and initial_regex.search(base_text):
+                    for rt_tag in ruby_tag.find_all('rt'):
+                        v = rt_tag.string.strip() if rt_tag.string else ''
                         if v and v not in furigana_to_mask:
                             furigana_to_mask.append(v)
+        
+        return words_to_mask, list(set(furigana_to_mask))
 
-        # 最終的なマスク語集合を作る
-        all_words_to_mask_set = set(words_to_mask + furigana_to_mask)
-        all_words_to_mask_set.add(self.full_title)
-        # マッチが長い順になるようにソート
-        all_words_to_mask = sorted(list(all_words_to_mask_set), key=len, reverse=True)
+    def _build_masking_regex(self, words_to_mask, furigana_to_mask):
+        all_words_to_mask = sorted(list(set(words_to_mask + furigana_to_mask + [self.full_title])), key=len, reverse=True)
 
         if self.debug_mode:
-            print("[DEBUG] furigana_to_mask:", furigana_to_mask)
             print("[DEBUG] all_words_to_mask (sorted):", all_words_to_mask)
 
         if not all_words_to_mask:
-            self.hint_view.setHtml(self.original_html, QUrl(WIKI_PAGE_BASE_URL))
-            return
+            return None
 
-        # マスク対象の単語を結合した正規表現を作成
-        # 要求: 答えと読みをピンポイントで完全一致させる -> 前後が「単語文字」に続く場合は除外する
-        # 日本語を含む「単語文字」相当の文字クラスを用意
+        # This regex component matches Japanese and alphanumeric characters,
+        # forming a basis for what we consider a "word".
         WORD_CHARS = r"0-9A-Za-z_\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uFF66-\uFF9F\u30FC"
         patterns = []
+        
+        # For the full title, we do a simple string match without word boundaries
+        # to maximize the chance of masking it, and place it first in the regex
+        # to ensure it's prioritized over partial matches.
+        if self.full_title in all_words_to_mask:
+            patterns.append(re.escape(self.full_title))
+        
         for w in all_words_to_mask:
-            if not w:
+            if not w or w == self.full_title:
                 continue
-            # (?<![WORD_CHARS]) ... (?![WORD_CHARS]) で囲むことで周辺に単語文字がなければ一致
+            # For other words, we enforce word boundaries to avoid masking substrings.
+            # e.g., '日本' should not mask the '日本' in '日本人'.
             p = r'(?<![' + WORD_CHARS + r'])' + re.escape(w) + r'(?![' + WORD_CHARS + r'])'
             patterns.append(p)
 
         if not patterns:
-            self.hint_view.setHtml(self.original_html, QUrl(WIKI_PAGE_BASE_URL))
-            return
+            return None
 
         regex = re.compile('(' + '|'.join(patterns) + ')', re.IGNORECASE)
         if self.debug_mode:
-            try:
-                print('[DEBUG] final mask regex:', regex.pattern)
-            except Exception:
-                print('[DEBUG] final mask regex: <unable to show>')
+            print('[DEBUG] final mask regex:', regex.pattern)
         
-        # 全てのテキストノードを探索
+        return regex
+
+    def _apply_mask_to_html(self, soup, regex):
         for node in soup.find_all(string=True):
-            # スクリプトやスタイルの中は無視
             if node.parent.name in ['script', 'style', 'head', 'title']:
                 continue
 
@@ -288,28 +269,22 @@ class WikiGameApp(QWidget):
                 new_nodes = []
                 last_end = 0
                 for match in regex.finditer(str(node)):
-                    # マッチしなかった部分を追加
                     non_match_text = str(node)[last_end:match.start()]
                     if non_match_text:
                         new_nodes.append(NavigableString(non_match_text))
                     
-                    # マッチした部分をマスクして追加
                     matched_word = match.group(1)
                     mask = '＿' * len(matched_word)
                     new_nodes.append(NavigableString(mask))
                     
                     last_end = match.end()
 
-                # 最後のマッチ以降の残りテキストを追加
                 rest_of_text = str(node)[last_end:]
                 if rest_of_text:
                     new_nodes.append(NavigableString(rest_of_text))
                 
-                # 元のノードを新しいノード群で置き換え
                 if new_nodes:
                     node.replace_with(*new_nodes)
-
-        self.hint_view.setHtml(str(soup), QUrl(WIKI_PAGE_BASE_URL))
 
     def update_title_display(self):
         """現在の回答状況に応じてタイトル表示を更新"""
