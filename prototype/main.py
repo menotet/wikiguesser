@@ -52,55 +52,65 @@ class WikiGameApp(QWidget):
 
     def setup_ui(self):
         """UIコンポーネントの配置"""
-        main_layout = QVBoxLayout(self)
+        main_layout = QHBoxLayout(self)
+
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
 
         self.status_label = QLabel("新しいゲームを開始します...")
         self.status_label.setFont(QFont("Arial", 12))
-        main_layout.addWidget(self.status_label)
+        left_layout.addWidget(self.status_label)
 
         title_group_label = QLabel("単語")
         title_group_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main_layout.addWidget(title_group_label)
+        left_layout.addWidget(title_group_label)
 
         self.hidden_title_label = QLabel("ロード中...")
         self.hidden_title_label.setFont(QFont("Arial", 20, QFont.Weight.Bold))
         self.hidden_title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.hidden_title_label.setStyleSheet("padding: 20px; border: 2px solid #333;")
-        main_layout.addWidget(self.hidden_title_label)
+        left_layout.addWidget(self.hidden_title_label)
 
-        hint_label = QLabel("Wikiページ")
-        hint_label.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-        main_layout.addWidget(hint_label)
+        left_layout.addStretch(1)
 
-        self.hint_view = QWebEngineView()
-        self.hint_view.setFixedHeight(300)
-        main_layout.addWidget(self.hint_view)
-
-        input_layout = QHBoxLayout()
+        guess_layout = QHBoxLayout()
         self.input_field = QLineEdit()
         self.input_field.setPlaceholderText("単語を入力してください...")
         self.input_field.returnPressed.connect(self.handle_guess)
-        input_layout.addWidget(self.input_field)
+        guess_layout.addWidget(self.input_field)
 
         self.guess_button = QPushButton("回答をチェック")
         self.guess_button.clicked.connect(self.handle_guess)
-        input_layout.addWidget(self.guess_button)
-
+        guess_layout.addWidget(self.guess_button)
+        
+        controls_layout = QHBoxLayout()
         self.answer_button = QPushButton("答えを表示")
         self.answer_button.clicked.connect(self.show_answer)
-        input_layout.addWidget(self.answer_button)
+        controls_layout.addWidget(self.answer_button)
 
         self.next_button = QPushButton("次の問題")
         self.next_button.clicked.connect(self.fetch_new_article)
-        input_layout.addWidget(self.next_button)
+        controls_layout.addWidget(self.next_button)
 
-        # デバッグモード切替ボタン
+        debug_layout = QHBoxLayout()
         self.debug_button = QPushButton("Debug: Off")
         self.debug_button.setCheckable(True)
         self.debug_button.clicked.connect(self.toggle_debug)
-        input_layout.addWidget(self.debug_button)
+        debug_layout.addWidget(self.debug_button)
+        debug_layout.addStretch(1)
 
-        main_layout.addLayout(input_layout)
+        left_layout.addLayout(guess_layout)
+        left_layout.addLayout(controls_layout)
+        left_layout.addLayout(debug_layout)
+
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+
+        self.hint_view = QWebEngineView()
+        right_layout.addWidget(self.hint_view)
+
+        main_layout.addWidget(left_widget, 1)
+        main_layout.addWidget(right_widget, 2)
 
     def get_random_article_data(self):
         """Wikipedia APIを呼び出し、ランダムな記事のタイトルと全文HTMLを取得"""
